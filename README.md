@@ -289,28 +289,189 @@ The trend shows deltas between the last 2-3 snapshots:
 - `+X MB` = increased (red)
 - `-X MB` = decreased (green)
 
-## CI Integration (Coming Soon)
+### `dit ci` - CI Integration 🚀
 
-Imagine this comment on your PRs:
+**The all-in-one command for CI pipelines.** Tracks images, compares against baseline, generates beautiful reports, and posts PR comments automatically.
+
+```bash
+# Single image with budget check
+dit ci myapp:latest --budget 500MB --github-comment
+
+# Multiple images with filter
+dit ci --filter autogpt_platform --budget 3GB --github-comment
+
+# Compare against specific branch
+dit ci myapp:latest --base main --github-comment
+
+# With percentage increase threshold
+dit ci myapp:latest --budget-increase 10 --fail-on-increase
+```
+
+**Options:**
+- `images` — One or more Docker images to track (e.g., `myapp:latest`)
+- `--filter <pattern>` — Track all images matching pattern (instead of listing images)
+- `--compose <path>` — Read images from docker-compose file
+- `--budget <size>` — Maximum allowed total size (e.g., `500MB`, `2GB`). Exits non-zero if exceeded.
+- `--budget-increase <percent>` — Maximum allowed increase percentage (e.g., `10`). Fails if any image grew more.
+- `--github-comment` — Post results as a GitHub PR comment (requires `GITHUB_TOKEN` env var)
+- `--base <branch>` — Compare against latest snapshot from this branch (default: latest tracked)
+- `--format <format>` — Output format: `table`, `json`, or `markdown` (default: `table`, auto `markdown` with `--github-comment`)
+- `--fail-on-increase` — Exit with non-zero code if ANY image increased in size
+
+**Environment Variables (for GitHub Actions):**
+- `GITHUB_TOKEN` — Required for posting PR comments
+- `GITHUB_REPOSITORY` — Auto-detected in GitHub Actions (e.g., `owner/repo`)
+- `GITHUB_EVENT_PATH` — Auto-detected (used to extract PR number)
+- `GITHUB_SHA` — Current commit SHA
+- `GITHUB_REF` — Current ref
+
+## CI Integration - GitHub Actions
+
+### Using the GitHub Action
+
+The easiest way to integrate `dit` into your CI pipeline is using the official GitHub Action:
+
+```yaml
+name: Docker Image Size Check
+on: [pull_request]
+
+jobs:
+  size-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      # Build your Docker images first
+      - name: Build images
+        run: docker-compose build
+      
+      # Track and report
+      - uses: Bentlybro/docker-image-tracker@v1
+        with:
+          filter: 'myapp'
+          budget: '500MB'
+          budget-increase: 10
+          comment: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### Action Inputs
+
+| Input | Description | Required | Default |
+|-------|-------------|----------|---------|
+| `image` | Docker image to track (e.g., `myapp:latest`) | No | - |
+| `filter` | Filter images by name substring | No | - |
+| `compose` | Path to docker-compose file | No | auto-detect |
+| `budget` | Maximum allowed total size (e.g., `500MB`, `2GB`) | No | - |
+| `budget-increase` | Maximum allowed increase percentage | No | - |
+| `comment` | Post results as PR comment | No | `true` |
+| `fail-on-increase` | Fail if any image increased | No | `false` |
+| `base` | Compare against this branch | No | latest tracked |
+| `token` | GitHub token for comments | No | `${{ github.token }}` |
+
+### Example Workflows
+
+**Basic usage - track a single image:**
+
+```yaml
+name: Track Docker Image Size
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t myapp:latest .
+      
+      - uses: Bentlybro/docker-image-tracker@v1
+        with:
+          image: 'myapp:latest'
+          budget: '500MB'
+          comment: true
+```
+
+**Track all compose images with budget:**
+
+```yaml
+name: Docker Compose Size Check
+
+on: [pull_request]
+
+jobs:
+  size-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Build all services
+        run: docker-compose build
+      
+      - uses: Bentlybro/docker-image-tracker@v1
+        with:
+          compose: 'docker-compose.yml'
+          budget: '3GB'
+          budget-increase: 10
+          fail-on-increase: false
+          comment: true
+```
+
+**Strict mode - fail on ANY size increase:**
+
+```yaml
+- uses: Bentlybro/docker-image-tracker@v1
+  with:
+    filter: 'production'
+    fail-on-increase: true
+    comment: true
+```
+
+### PR Comment Example
+
+When `comment: true` is enabled, `dit` posts a beautiful report to your PRs:
 
 > ## 🐋 Docker Image Size Report
 > 
-> | Metric | Base (`main`) | This PR | Change |
-> |--------|--------------|---------|--------|
-> | Total Size | 245.3 MB | 267.8 MB | +22.5 MB (+9.2%) 📈 |
-> | Layers | 12 | 14 | +2 |
+> **Commit:** `abc1234` | **Branch:** `feature/new-thing` | **Date:** 2026-01-31
+>
+> ### Summary
+> | Image | Previous | Current | Change |
+> |-------|----------|---------|--------|
+> | autogpt_platform-frontend:latest | 120.3 MB | 125.5 MB | +5.2 MB (+4.3%) 📈 |
+> | autogpt_platform-executor:latest | 508.4 MB | 508.4 MB | — ✅ |
+> | **Total** | **3.4 GB** | **3.6 GB** | **+200 MB (+5.9%)** |
+>
+> <details>
+> <summary>Layer Details: autogpt_platform-frontend:latest</summary>
+>
+> | Status | Size | Delta | Command |
+> |--------|------|-------|----------|
+> | Modified 🔄 | 63.7 MB | +18.5 MB | `RUN npm install` |
+> | Added ➕ | 3.8 MB | +3.8 MB | `COPY ./dist` |
+> | Unchanged ✅ | 89.1 MB | — | `FROM node:18-alpine` |
+>
+> </details>
+>
+> ### Budget Status
+> ✅ Total size: 3.6 GB (budget: 5 GB)
 > 
-> ### Layer Changes
-> | Command | Before | After | Delta |
-> |---------|--------|-------|-------|
-> | `RUN npm install` | 45.2 MB | 63.7 MB | **+18.5 MB** ⚠️ |
-> | `COPY ./dist` | - | 3.8 MB | +3.8 MB (new) |
-> 
-> 💡 **Tip**: The `npm install` layer grew significantly. Consider using `npm ci --production` or a multi-stage build.
-> 
-> 📊 Budget: 500 MB — ✅ Within budget
+> ⚠️ autogpt_platform-frontend:latest changed by 4.3% (threshold: 10%)
+>
+> ---
+> *Tracked by [dit](https://github.com/Bentlybro/docker-image-tracker) 🐋*
 
-GitHub Action coming in Phase 2!
+**Features:**
+- ✅ Updates existing comment instead of creating duplicates
+- 📊 Shows size changes with visual indicators (📈 📉 ✅)
+- 🔍 Expandable layer-by-layer breakdown for changed images
+- 🎯 Budget validation with clear pass/fail status
+- 📌 Links back to the repository
 
 ## How It Works
 
@@ -329,7 +490,7 @@ GitHub Action coming in Phase 2!
 
 - [x] Phase 1: Core CLI (`analyze`, `track`, `diff`, `history`)
 - [x] Phase 1.5: Multi-image support (`analyze-all`, `track-all`, `compose`, `summary`)
-- [ ] Phase 2: CI integration (GitHub Actions, GitLab CI)
+- [x] Phase 2: CI integration (`dit ci` command, GitHub Actions, PR comments)
 - [ ] Phase 3: Advanced features (charts, HTML reports, registry support)
 
 ## Contributing

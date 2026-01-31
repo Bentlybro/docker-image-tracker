@@ -72,7 +72,7 @@ fn run_git(args: &[&str]) -> Result<String> {
     Ok(String::from_utf8(output.stdout)?.trim().to_string())
 }
 
-fn save_snapshot(snapshot: &ImageSnapshot) -> Result<()> {
+pub fn save_snapshot(snapshot: &ImageSnapshot) -> Result<()> {
     // Create .dit directory if it doesn't exist
     let dit_dir = PathBuf::from(HISTORY_DIR);
     if !dit_dir.exists() {

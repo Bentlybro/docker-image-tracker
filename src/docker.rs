@@ -121,6 +121,7 @@ impl DockerClient {
     }
 }
 
+#[allow(dead_code)]
 fn truncate_command(cmd: &str, max_len: usize) -> String {
     if cmd.len() <= max_len {
         cmd.to_string()

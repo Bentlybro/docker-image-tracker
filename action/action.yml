@@ -1,0 +1,149 @@
+name: 'Docker Image Tracker'
+description: 'Track Docker image sizes and post PR comments with size changes'
+author: 'Bentlybro'
+
+branding:
+  icon: 'package'
+  color: 'blue'
+
+inputs:
+  image:
+    description: 'Docker image to track (e.g., myapp:latest). Can be specified multiple times.'
+    required: false
+  filter:
+    description: 'Filter images by name substring (e.g., autogpt_platform)'
+    required: false
+  compose:
+    description: 'Path to docker-compose file (auto-detects if not specified)'
+    required: false
+  budget:
+    description: 'Maximum allowed total size (e.g., 500MB, 2GB)'
+    required: false
+  budget-increase:
+    description: 'Maximum allowed size increase percentage (e.g., 10)'
+    required: false
+  comment:
+    description: 'Post results as PR comment'
+    required: false
+    default: 'true'
+  fail-on-increase:
+    description: 'Fail if any image increased in size'
+    required: false
+    default: 'false'
+  base:
+    description: 'Compare against latest snapshot from this branch (e.g., main)'
+    required: false
+  token:
+    description: 'GitHub token for PR comments'
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install dit
+      shell: bash
+      run: |
+        echo "📦 Installing Docker Image Tracker (dit)..."
+        
+        # Determine platform
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        ARCH=$(uname -m)
+        
+        # Map architecture names
+        if [ "$ARCH" = "x86_64" ]; then
+          ARCH="x86_64"
+        elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+          ARCH="aarch64"
+        else
+          echo "❌ Unsupported architecture: $ARCH"
+          exit 1
+        fi
+        
+        # Download binary
+        BINARY_NAME="dit-${OS}-${ARCH}"
+        DOWNLOAD_URL="https://github.com/Bentlybro/docker-image-tracker/releases/latest/download/${BINARY_NAME}"
+        
+        echo "Downloading from: $DOWNLOAD_URL"
+        
+        # Try to download (will fail until first release is published)
+        if ! curl -sSL "$DOWNLOAD_URL" -o /tmp/dit 2>/dev/null; then
+          echo "⚠️  Pre-built binary not available yet. Installing from source..."
+          
+          # Install Rust if not present
+          if ! command -v cargo &> /dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            source $HOME/.cargo/env
+          fi
+          
+          # Clone and build
+          git clone --depth 1 https://github.com/Bentlybro/docker-image-tracker /tmp/dit-source
+          cd /tmp/dit-source
+          cargo build --release
+          cp target/release/dit /tmp/dit
+        fi
+        
+        # Install binary
+        chmod +x /tmp/dit
+        sudo mv /tmp/dit /usr/local/bin/dit
+        
+        # Verify installation
+        dit --version
+        echo "✅ dit installed successfully"
+
+    - name: Run dit ci
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: |
+        echo "🐋 Running Docker Image Tracker CI check..."
+        
+        # Build the dit ci command
+        CMD="dit ci"
+        
+        # Add image(s)
+        if [ -n "${{ inputs.image }}" ]; then
+          CMD="$CMD ${{ inputs.image }}"
+        fi
+        
+        # Add filter
+        if [ -n "${{ inputs.filter }}" ]; then
+          CMD="$CMD --filter '${{ inputs.filter }}'"
+        fi
+        
+        # Add compose
+        if [ -n "${{ inputs.compose }}" ]; then
+          CMD="$CMD --compose '${{ inputs.compose }}'"
+        fi
+        
+        # Add budget
+        if [ -n "${{ inputs.budget }}" ]; then
+          CMD="$CMD --budget '${{ inputs.budget }}'"
+        fi
+        
+        # Add budget-increase
+        if [ -n "${{ inputs.budget-increase }}" ]; then
+          CMD="$CMD --budget-increase ${{ inputs.budget-increase }}"
+        fi
+        
+        # Add base branch
+        if [ -n "${{ inputs.base }}" ]; then
+          CMD="$CMD --base '${{ inputs.base }}'"
+        fi
+        
+        # Add comment flag
+        if [ "${{ inputs.comment }}" = "true" ]; then
+          CMD="$CMD --github-comment"
+        fi
+        
+        # Add fail-on-increase
+        if [ "${{ inputs.fail-on-increase }}" = "true" ]; then
+          CMD="$CMD --fail-on-increase"
+        fi
+        
+        # Use markdown format for GitHub
+        CMD="$CMD --format markdown"
+        
+        # Execute command
+        echo "Executing: $CMD"
+        eval $CMD

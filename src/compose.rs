@@ -38,7 +38,7 @@ enum BuildConfig {
 pub async fn compose_analyze(file: Option<&str>) -> Result<()> {
     let compose_path = find_compose_file(file)?;
     let project_name = get_project_name(&compose_path)?;
-    let services = parse_compose_file(&compose_path)?;
+    let services = parse_compose_file_internal(&compose_path)?;
 
     if services.is_empty() {
         println!("No services with build directives found in {}", compose_path.display());
@@ -111,7 +111,7 @@ pub async fn compose_analyze(file: Option<&str>) -> Result<()> {
 pub async fn compose_track(file: Option<&str>) -> Result<()> {
     let compose_path = find_compose_file(file)?;
     let project_name = get_project_name(&compose_path)?;
-    let services = parse_compose_file(&compose_path)?;
+    let services = parse_compose_file_internal(&compose_path)?;
 
     if services.is_empty() {
         println!("No services with build directives found in {}", compose_path.display());
@@ -156,7 +156,7 @@ pub async fn compose_track(file: Option<&str>) -> Result<()> {
 pub async fn compose_history(file: Option<&str>) -> Result<()> {
     let compose_path = find_compose_file(file)?;
     let project_name = get_project_name(&compose_path)?;
-    let services = parse_compose_file(&compose_path)?;
+    let services = parse_compose_file_internal(&compose_path)?;
 
     if services.is_empty() {
         println!("No services with build directives found");
@@ -208,7 +208,12 @@ fn find_compose_file(file: Option<&str>) -> Result<PathBuf> {
     anyhow::bail!("No docker-compose file found in current directory. Use --file to specify a path.")
 }
 
-fn parse_compose_file(path: &Path) -> Result<Vec<String>> {
+pub fn parse_compose_file(path: Option<&str>) -> Result<Vec<String>> {
+    let compose_path = find_compose_file(path)?;
+    parse_compose_file_internal(&compose_path)
+}
+
+fn parse_compose_file_internal(path: &Path) -> Result<Vec<String>> {
     let content = fs::read_to_string(path)
         .context(format!("Failed to read compose file: {}", path.display()))?;
 

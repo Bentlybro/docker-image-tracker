@@ -33,7 +33,7 @@ pub struct LayerInfo {
     pub created: DateTime<Utc>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SizeDiff {
     pub before: ImageSnapshot,
     pub after: ImageSnapshot,
@@ -41,7 +41,7 @@ pub struct SizeDiff {
     pub layer_changes: Vec<LayerChange>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LayerChange {
     Added(LayerInfo),
     Removed(LayerInfo),
@@ -71,6 +71,7 @@ impl LayerChange {
         }
     }
 
+    #[allow(dead_code)]
     pub fn kind(&self) -> &str {
         match self {
             LayerChange::Added(_) => "added",

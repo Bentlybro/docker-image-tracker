@@ -1,9 +1,11 @@
 mod analyze;
 mod analyze_all;
+mod ci;
 mod compose;
 mod diff;
 mod docker;
 mod format;
+mod github;
 mod history;
 mod models;
 mod summary;
@@ -15,6 +17,7 @@ use clap::{Parser, Subcommand};
 
 use analyze::{analyze_image, OutputFormat};
 use analyze_all::analyze_all_images;
+use ci::{parse_size, run_ci, CiConfig, CiOutputFormat};
 use compose::{compose_analyze, compose_history, compose_track};
 use diff::diff_images;
 use history::show_history;
@@ -100,6 +103,52 @@ enum Commands {
 
     /// Show summary dashboard of all tracked images
     Summary,
+
+    /// CI mode - track, compare, and report (GitHub Actions optimized)
+    Ci {
+        /// Docker image(s) to track
+        #[arg(required_unless_present_any = ["filter", "compose"])]
+        images: Vec<String>,
+
+        /// Filter images by name (use with --filter)
+        #[arg(long, conflicts_with = "images")]
+        filter: Option<String>,
+
+        /// Read images from docker-compose file
+        #[arg(long, conflicts_with_all = ["images", "filter"])]
+        compose: Option<String>,
+
+        /// Maximum allowed total size (e.g., 500MB, 2GB)
+        #[arg(long)]
+        budget: Option<String>,
+
+        /// Maximum allowed increase percentage (e.g., 10)
+        #[arg(long)]
+        budget_increase: Option<f64>,
+
+        /// Post results as GitHub PR comment
+        #[arg(long)]
+        github_comment: bool,
+
+        /// Compare against latest snapshot from this branch
+        #[arg(long)]
+        base: Option<String>,
+
+        /// Output format
+        #[arg(long, value_enum, default_value = "table")]
+        format: CiFormat,
+
+        /// Exit with non-zero code if ANY image increased in size
+        #[arg(long)]
+        fail_on_increase: bool,
+    },
+}
+
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum CiFormat {
+    Table,
+    Json,
+    Markdown,
 }
 
 #[derive(Subcommand)]
@@ -167,6 +216,64 @@ async fn main() -> Result<()> {
         },
         Commands::Summary => {
             show_summary().await?;
+        }
+        Commands::Ci {
+            images,
+            filter,
+            compose,
+            budget,
+            budget_increase,
+            github_comment,
+            base,
+            format,
+            fail_on_increase,
+        } => {
+            // Determine which images to track
+            let target_images = if !images.is_empty() {
+                images
+            } else if let Some(filter_str) = filter {
+                // Get all images matching filter
+                use docker::DockerClient;
+                let docker = DockerClient::new()?;
+                docker.list_all_images(Some(&filter_str)).await?
+            } else if let Some(compose_file) = compose {
+                // Read from compose file
+                use compose::parse_compose_file;
+                parse_compose_file(Some(&compose_file))?
+            } else {
+                anyhow::bail!("Must provide images, --filter, or --compose");
+            };
+
+            let budget_bytes = if let Some(b) = budget {
+                Some(parse_size(&b)?)
+            } else {
+                None
+            };
+
+            let output_format = match format {
+                CiFormat::Table => CiOutputFormat::Table,
+                CiFormat::Json => CiOutputFormat::Json,
+                CiFormat::Markdown => CiOutputFormat::Markdown,
+            };
+
+            // Auto-detect format: if --github-comment is used, default to markdown
+            let final_format = if github_comment && matches!(format, CiFormat::Table) {
+                CiOutputFormat::Markdown
+            } else {
+                output_format
+            };
+
+            let config = CiConfig {
+                images: target_images,
+                budget_bytes,
+                budget_increase_percent: budget_increase,
+                github_comment,
+                base_branch: base,
+                fail_on_increase,
+                format: final_format,
+            };
+
+            run_ci(config).await?;
         }
     }
 
