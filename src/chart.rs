@@ -236,23 +236,6 @@ pub fn calculate_trend_with_sparkline(snapshots: &[ImageSnapshot], sparkline_cou
     let sparkline = generate_sparkline(recent);
 
     // Pad sparkline to fixed width so table columns align properly
-    let padded = format!("{:width$}", sparkline, width = sparkline_count);
-
-    if snapshots.len() < 2 {
-        return padded;
-    }
-
-    // Calculate overall trend
-    let first = recent.first().unwrap();
-    let latest = recent.last().unwrap();
-    let delta = latest.total_size as i64 - first.total_size as i64;
-
-    if delta.abs() < 1024 * 10 {
-        // Less than 10KB change - stable
-        padded.dimmed().to_string()
-    } else if delta > 0 {
-        padded.red().to_string()
-    } else {
-        padded.green().to_string()
-    }
+    // Do NOT add ANSI colors here — they break tabled's width calculation
+    format!("{:<width$}", sparkline, width = sparkline_count)
 }
