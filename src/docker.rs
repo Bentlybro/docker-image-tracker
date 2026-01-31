@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use bollard::image::ListImagesOptions;
 use bollard::Docker;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 
 use crate::models::{ImageSnapshot, LayerInfo};
 
@@ -37,35 +37,53 @@ impl DockerClient {
             (image.to_string(), Some("latest".to_string()))
         };
 
-        // Extract layer information from root_fs
+        // Use image history API to get actual per-layer sizes and commands
+        let history = self
+            .client
+            .image_history(image)
+            .await
+            .context(format!("Failed to get history for image '{}'", image))?;
+
         let mut layers = Vec::new();
-        if let Some(root_fs) = inspect.root_fs {
-            if let Some(layer_digests) = root_fs.layers {
-                for digest in layer_digests.iter() {
-                    // Note: Without history API, we can't get exact layer sizes and commands
-                    // We'll use the digest and placeholder data for now
-                    layers.push(LayerInfo {
-                        digest: digest.clone(),
-                        size: 0, // Will be computed differently
-                        command: "<layer>".to_string(),
-                        created: Utc::now(),
-                    });
-                }
-            }
+        for entry in history.iter().rev() {
+            // Skip empty layers (size 0) that are just metadata
+            let size = entry.size as u64;
+
+            // Extract the command — clean up the Docker format
+            let command = if entry.created_by.is_empty() {
+                "<unknown>".to_string()
+            } else {
+                entry.created_by.clone()
+            };
+
+            // Clean up command: remove "/bin/sh -c #(nop) " prefix and trim
+            let command = clean_command(&command);
+
+            // Parse the created timestamp
+            let created = if entry.created > 0 {
+                DateTime::from_timestamp(entry.created, 0)
+                    .unwrap_or_else(|| Utc::now())
+            } else {
+                Utc::now()
+            };
+
+            // Use the ID as digest, or generate a placeholder
+            let layer_digest = if entry.id.is_empty() {
+                "<missing>".to_string()
+            } else {
+                entry.id.clone()
+            };
+
+            layers.push(LayerInfo {
+                digest: layer_digest,
+                size,
+                command,
+                created,
+            });
         }
 
-        // If we have layer data, estimate size per layer
-        // (total size divided by number of layers)
         let layer_count = layers.len();
-        if layer_count > 0 {
-            let size_per_layer = total_size / layer_count as u64;
-            for layer in &mut layers {
-                layer.size = size_per_layer;
-            }
-        }
 
-        // For now, we'll fill in git context with placeholders
-        // The track command will override these
         Ok(ImageSnapshot {
             image: image_name,
             tag,
@@ -121,11 +139,25 @@ impl DockerClient {
     }
 }
 
-#[allow(dead_code)]
-fn truncate_command(cmd: &str, max_len: usize) -> String {
-    if cmd.len() <= max_len {
-        cmd.to_string()
+/// Clean up Docker command strings for display
+fn clean_command(cmd: &str) -> String {
+    let cleaned = cmd
+        // Remove /bin/sh -c #(nop) prefix (metadata commands like ENV, LABEL, etc.)
+        .replace("/bin/sh -c #(nop)  ", "")
+        .replace("/bin/sh -c #(nop) ", "")
+        // Remove /bin/sh -c prefix (RUN commands)
+        .replace("/bin/sh -c ", "RUN ")
+        .trim()
+        .to_string();
+
+    if cleaned.is_empty() {
+        "<layer>".to_string()
     } else {
-        format!("{}...", &cmd[..max_len - 3])
+        // Truncate very long commands
+        if cleaned.len() > 120 {
+            format!("{}...", &cleaned[..117])
+        } else {
+            cleaned
+        }
     }
 }
