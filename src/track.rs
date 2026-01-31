@@ -1,0 +1,115 @@
+use anyhow::{Context, Result};
+use chrono::Utc;
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
+
+use crate::docker::DockerClient;
+use crate::models::ImageSnapshot;
+
+const HISTORY_DIR: &str = ".dit";
+const HISTORY_FILE: &str = "history.json";
+
+pub async fn track_image(image: &str) -> Result<()> {
+    // Get Docker snapshot
+    let docker = DockerClient::new()?;
+    let mut snapshot = docker.inspect_image(image).await?;
+
+    // Get git context
+    let git_context = get_git_context()?;
+    snapshot.commit_sha = git_context.commit_sha;
+    snapshot.branch = git_context.branch;
+    snapshot.commit_message = git_context.commit_message;
+    snapshot.author = git_context.author;
+    snapshot.timestamp = Utc::now();
+
+    // Save to history
+    save_snapshot(&snapshot)?;
+
+    println!("✅ Tracked snapshot for {} at commit {}", 
+        snapshot.image, 
+        snapshot.commit_sha.chars().take(7).collect::<String>()
+    );
+    println!("Branch: {}", snapshot.branch);
+    println!("Size: {} bytes", snapshot.total_size);
+
+    Ok(())
+}
+
+#[derive(Debug)]
+struct GitContext {
+    commit_sha: String,
+    branch: String,
+    commit_message: String,
+    author: String,
+}
+
+fn get_git_context() -> Result<GitContext> {
+    let commit_sha = run_git(&["rev-parse", "HEAD"])?;
+    let branch = run_git(&["rev-parse", "--abbrev-ref", "HEAD"])?;
+    let commit_message = run_git(&["log", "-1", "--pretty=%s"])?;
+    let author = run_git(&["log", "-1", "--pretty=%an <%ae>"])?;
+
+    Ok(GitContext {
+        commit_sha,
+        branch,
+        commit_message,
+        author,
+    })
+}
+
+fn run_git(args: &[&str]) -> Result<String> {
+    let output = Command::new("git")
+        .args(args)
+        .output()
+        .context("Failed to execute git command. Is git installed?")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Git command failed: {}", stderr);
+    }
+
+    Ok(String::from_utf8(output.stdout)?.trim().to_string())
+}
+
+fn save_snapshot(snapshot: &ImageSnapshot) -> Result<()> {
+    // Create .dit directory if it doesn't exist
+    let dit_dir = PathBuf::from(HISTORY_DIR);
+    if !dit_dir.exists() {
+        fs::create_dir(&dit_dir).context("Failed to create .dit directory")?;
+    }
+
+    // Load existing history
+    let history_path = dit_dir.join(HISTORY_FILE);
+    let mut snapshots: Vec<ImageSnapshot> = if history_path.exists() {
+        let content = fs::read_to_string(&history_path)
+            .context("Failed to read history.json")?;
+        serde_json::from_str(&content).context("Failed to parse history.json")?
+    } else {
+        Vec::new()
+    };
+
+    // Append new snapshot
+    snapshots.push(snapshot.clone());
+
+    // Save back to file
+    let json = serde_json::to_string_pretty(&snapshots)?;
+    fs::write(&history_path, json).context("Failed to write history.json")?;
+
+    Ok(())
+}
+
+pub fn load_history() -> Result<Vec<ImageSnapshot>> {
+    let history_path = PathBuf::from(HISTORY_DIR).join(HISTORY_FILE);
+
+    if !history_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let content = fs::read_to_string(&history_path)
+        .context("Failed to read history.json")?;
+    let snapshots: Vec<ImageSnapshot> = serde_json::from_str(&content)
+        .context("Failed to parse history.json")?;
+
+    Ok(snapshots)
+}
