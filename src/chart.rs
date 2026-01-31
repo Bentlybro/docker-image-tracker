@@ -226,7 +226,7 @@ pub fn generate_sparkline(snapshots: &[ImageSnapshot]) -> String {
 /// Calculate trend description for summary
 pub fn calculate_trend_with_sparkline(snapshots: &[ImageSnapshot], sparkline_count: usize) -> String {
     if snapshots.is_empty() {
-        return "—".to_string();
+        return format!("{:width$}", "—", width = sparkline_count);
     }
 
     // Take last N snapshots for sparkline
@@ -235,8 +235,11 @@ pub fn calculate_trend_with_sparkline(snapshots: &[ImageSnapshot], sparkline_cou
 
     let sparkline = generate_sparkline(recent);
 
+    // Pad sparkline to fixed width so table columns align properly
+    let padded = format!("{:width$}", sparkline, width = sparkline_count);
+
     if snapshots.len() < 2 {
-        return sparkline;
+        return padded;
     }
 
     // Calculate overall trend
@@ -244,14 +247,12 @@ pub fn calculate_trend_with_sparkline(snapshots: &[ImageSnapshot], sparkline_cou
     let latest = recent.last().unwrap();
     let delta = latest.total_size as i64 - first.total_size as i64;
 
-    let trend_indicator = if delta.abs() < 1024 * 10 {
+    if delta.abs() < 1024 * 10 {
         // Less than 10KB change - stable
-        sparkline.dimmed().to_string()
+        padded.dimmed().to_string()
     } else if delta > 0 {
-        sparkline.red().to_string()
+        padded.red().to_string()
     } else {
-        sparkline.green().to_string()
-    };
-
-    trend_indicator
+        padded.green().to_string()
+    }
 }
