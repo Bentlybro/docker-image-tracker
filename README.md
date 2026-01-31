@@ -7,7 +7,11 @@
 ## Features
 
 - 🔍 **Analyze** — Inspect any Docker image and see a detailed layer breakdown
+- 🔍 **Analyze All** — Analyze ALL local images at once (with filtering)
 - 📊 **Track** — Record image snapshots with git context (commit, branch, author)
+- 📊 **Track All** — Track multiple images in one command
+- 🐳 **Compose Support** — Track all images from docker-compose.yml
+- 📋 **Summary** — Dashboard view of all tracked images
 - 🔄 **Diff** — Compare any two snapshots and see exactly what changed
 - 📈 **History** — View size trends across commits with delta indicators
 - 🎨 **Beautiful output** — Color-coded tables with human-readable sizes
@@ -153,6 +157,138 @@ Image: myapp
 **Options:**
 - `--last N` — Show only the last N snapshots
 
+### `dit analyze-all [--filter <pattern>]`
+
+Analyze ALL local Docker images at once. Perfect for getting an overview of your entire Docker environment.
+
+```bash
+$ dit analyze-all
+
+All Docker Images
+╭──────────────────────┬─────────┬───────────┬────────┬─────────────╮
+│        Image         │   Tag   │   Size    │ Layers │   OS/Arch   │
+├──────────────────────┼─────────┼───────────┼────────┼─────────────┤
+│ autogpt_platform-db  │ latest  │  2.25 GB  │   18   │ linux/amd64 │
+│ autogpt_platform-api │ latest  │  2.25 GB  │   18   │ linux/amd64 │
+│ autogpt_platform-ui  │ latest  │  2.25 GB  │   18   │ linux/amd64 │
+│ postgres             │ 13      │  314.2 MB │   12   │ linux/amd64 │
+│ redis                │ alpine  │   28.5 MB │    7   │ linux/amd64 │
+╰──────────────────────┴─────────┴───────────┴────────┴─────────────╯
+
+Total: 5 images, 9.4 GB combined
+```
+
+**Filter by name:**
+```bash
+# Only show images matching "autogpt"
+$ dit analyze-all --filter autogpt_platform
+
+All Docker Images
+╭──────────────────────┬─────────┬───────────┬────────┬─────────────╮
+│        Image         │   Tag   │   Size    │ Layers │   OS/Arch   │
+├──────────────────────┼─────────┼───────────┼────────┼─────────────┤
+│ autogpt_platform-db  │ latest  │  2.25 GB  │   18   │ linux/amd64 │
+│ autogpt_platform-api │ latest  │  2.25 GB  │   18   │ linux/amd64 │
+│ autogpt_platform-ui  │ latest  │  2.25 GB  │   18   │ linux/amd64 │
+╰──────────────────────┴─────────┴───────────┴────────┴─────────────╯
+
+Total: 3 images, 6.75 GB combined
+```
+
+**Options:**
+- `--filter <pattern>` — Only show images matching the pattern (case-insensitive substring match)
+- `--format json` — Output as JSON for scripting
+
+### `dit track-all [--filter <pattern>]`
+
+Track all local images in one command. Captures git context once and applies it to all snapshots.
+
+```bash
+$ dit track-all --filter autogpt_platform
+Tracking 8 images at commit a1b2c3d...
+
+  autogpt_platform-db:latest ... ✅ 2.25 GB tracked
+  autogpt_platform-api:latest ... ✅ 2.25 GB tracked
+  autogpt_platform-ui:latest ... ✅ 2.25 GB tracked
+  autogpt_platform-worker-1:latest ... ✅ 2.25 GB tracked
+  autogpt_platform-worker-2:latest ... ✅ 2.25 GB tracked
+  autogpt_platform-worker-3:latest ... ✅ 2.25 GB tracked
+  autogpt_platform-worker-4:latest ... ✅ 2.25 GB tracked
+  autogpt_platform-scheduler:latest ... ✅ 2.25 GB tracked
+
+✅ Tracked 8 images, total size: 18.0 GB
+```
+
+**Options:**
+- `--filter <pattern>` — Only track images matching the pattern
+
+### `dit compose <subcommand>`
+
+Work with Docker Compose projects. Automatically detects services with `build:` directives.
+
+#### `dit compose analyze [--file <path>]`
+
+Analyze all images built by docker-compose.
+
+```bash
+$ dit compose analyze
+Found 8 services with build directives in ./docker-compose.yml:
+
+Analyzing 8 compose images...
+
+  autogpt_platform-db:latest — 2.25 GB (18 layers)
+  autogpt_platform-api:latest — 2.25 GB (18 layers)
+  autogpt_platform-ui:latest — 2.25 GB (18 layers)
+  autogpt_platform-worker-1:latest — 2.25 GB (18 layers)
+  ...
+```
+
+#### `dit compose track [--file <path>]`
+
+Track all compose-built images.
+
+```bash
+$ dit compose track
+Tracking 8 compose images...
+  autogpt_platform-db:latest ... ✅ 2.25 GB tracked
+  autogpt_platform-api:latest ... ✅ 2.25 GB tracked
+  ...
+```
+
+#### `dit compose history [--file <path>]`
+
+Show history for all compose services.
+
+**Options (all subcommands):**
+- `--file <path>` — Use a specific compose file (defaults to auto-detect in current directory)
+
+### `dit summary`
+
+Show a dashboard-style overview of all tracked images.
+
+```bash
+$ dit summary
+
+Docker Image Tracker Summary
+Total tracked images: 8
+
+╭──────────────────────────┬─────────────┬──────────────────────┬───────────┬──────────────────╮
+│          Image           │ Latest Size │   Trend (Last 3)     │ Snapshots │   Last Tracked   │
+├──────────────────────────┼─────────────┼──────────────────────┼───────────┼──────────────────┤
+│ autogpt_platform-db      │   2.25 GB   │ +45 MB → +12 MB      │     5     │ 2024-01-17 14:30 │
+│ autogpt_platform-api     │   2.25 GB   │ → → -8 MB            │     3     │ 2024-01-17 14:30 │
+│ autogpt_platform-ui      │   2.25 GB   │ +120 MB → →          │     4     │ 2024-01-17 14:30 │
+│ postgres:13              │  314.2 MB   │ —                    │     1     │ 2024-01-15 09:00 │
+╰──────────────────────────┴─────────────┴──────────────────────┴───────────┴──────────────────╯
+
+Total combined size: 9.1 GB
+```
+
+The trend shows deltas between the last 2-3 snapshots:
+- `→` = no change
+- `+X MB` = increased (red)
+- `-X MB` = decreased (green)
+
 ## CI Integration (Coming Soon)
 
 Imagine this comment on your PRs:
@@ -192,6 +328,7 @@ GitHub Action coming in Phase 2!
 ## Roadmap
 
 - [x] Phase 1: Core CLI (`analyze`, `track`, `diff`, `history`)
+- [x] Phase 1.5: Multi-image support (`analyze-all`, `track-all`, `compose`, `summary`)
 - [ ] Phase 2: CI integration (GitHub Actions, GitLab CI)
 - [ ] Phase 3: Advanced features (charts, HTML reports, registry support)
 

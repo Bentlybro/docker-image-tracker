@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use bollard::image::ListImagesOptions;
 use bollard::Docker;
 use chrono::Utc;
 
@@ -80,6 +81,43 @@ impl DockerClient {
             os,
             arch,
         })
+    }
+
+    pub async fn list_all_images(&self, filter: Option<&str>) -> Result<Vec<String>> {
+        let options = ListImagesOptions::<String> {
+            all: false,
+            ..Default::default()
+        };
+
+        let images = self
+            .client
+            .list_images(Some(options))
+            .await
+            .context("Failed to list Docker images")?;
+
+        let mut result = Vec::new();
+
+        for image in images {
+            for tag in &image.repo_tags {
+                // Skip <none>:<none> images
+                if tag == "<none>:<none>" {
+                    continue;
+                }
+
+                // Apply filter if provided
+                if let Some(f) = filter {
+                    if !tag.to_lowercase().contains(&f.to_lowercase()) {
+                        continue;
+                    }
+                }
+
+                result.push(tag.clone());
+            }
+        }
+
+        // Sort alphabetically
+        result.sort();
+        Ok(result)
     }
 }
 
