@@ -52,8 +52,10 @@ dit history myapp:latest
 | `dit track-all` | Track all images (with `--filter`) |
 | `dit diff <image>` | Compare snapshots |
 | `dit history <image>` | View size timeline |
+| `dit chart <image>` | Show ASCII trend chart for an image |
+| `dit chart --all` | Show sparklines for all tracked images |
 | `dit compose analyze\|track\|history` | Docker Compose support |
-| `dit summary` | Dashboard of all tracked images |
+| `dit summary` | Dashboard of all tracked images (with sparklines) |
 | `dit ci` | CI mode with PR comments |
 
 ### Analyze
@@ -106,12 +108,44 @@ $ dit diff myapp:latest
 $ dit summary
 
  Image                        │ Size     │ Trend         │ Last Tracked
- autogpt_platform-frontend    │ 125.5 MB │ +5.2 MB → →   │ 2026-01-31
- autogpt_platform-executor    │ 508.4 MB │ → → -8 MB     │ 2026-01-31
- autogpt_platform-rest_server │ 508.4 MB │ →             │ 2026-01-31
+ autogpt_platform-frontend    │ 125.5 MB │ ▁▂▂▃▃▃▅▅▇█    │ 2026-01-31
+ autogpt_platform-executor    │ 508.4 MB │ ▅▅▅▅▅▅▅▅▅▅    │ 2026-01-31
+ autogpt_platform-rest_server │ 508.4 MB │ ▇▇▅▃▃▃▂▂▁▁    │ 2026-01-31
 
  Total: 3.6 GiB across 8 images
 ```
+
+### ASCII Trend Charts
+
+**Single image bar chart:**
+```bash
+$ dit chart autogpt_platform-frontend
+
+autogpt_platform-frontend — Size History
+
+  abc123 │ ████████████████████████████████████████ 508.4 MB
+  def456 │ ████████████████████████████████████████ 508.4 MB
+  ghi789 │ █████████████████████████████████████████ 515.2 MB (+6.8 MB)
+  jkl012 │ ████████████████████████████████████████ 508.4 MB (-6.8 MB)
+  mno345 │ ██████████████████████████████████████████ 525.1 MB (+16.7 MB)
+```
+
+Bars are color-coded: 🟢 green when size decreased, 🔴 red when increased.
+
+**Sparklines for all images:**
+```bash
+$ dit chart --all
+
+Image Trends (last 10 snapshots)
+
+  autogpt_platform-frontend    ▁▂▂▃▃▃▅▅▇█  125.5 MB (+12.3%)
+  autogpt_platform-executor    ▅▅▅▅▅▅▅▅▅▅  508.4 MB (stable)
+  autogpt_platform-rest_server ▇▇▅▃▃▃▂▂▁▁  480.2 MB (-15.7%)
+```
+
+**Options:**
+- `--last N` — Limit to last N snapshots (default: 20 for chart, 10 for chart --all)
+- Charts automatically color-code based on trends
 
 ## CI Integration
 
@@ -215,8 +249,8 @@ cargo install --path .
 - [x] Core CLI (analyze, track, diff, history)
 - [x] Multi-image support (analyze-all, track-all, compose, summary)
 - [x] CI integration (dit ci, GitHub Action, PR comments)
+- [x] ASCII trend charts (sparklines & bar charts)
 - [ ] Pre-built release binaries
-- [ ] ASCII trend charts
 - [ ] HTML reports
 - [ ] Registry support (analyze without pulling)
 - [ ] GitLab CI / other CI platforms

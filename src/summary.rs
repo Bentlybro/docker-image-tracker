@@ -6,6 +6,7 @@ use tabled::{
     settings::{object::Rows, Alignment, Modify, Style},
 };
 
+use crate::chart::calculate_trend_with_sparkline;
 use crate::format::format_size;
 use crate::models::ImageSnapshot;
 use crate::track::load_history;
@@ -41,7 +42,7 @@ pub async fn show_summary() -> Result<()> {
     builder.push_record([
         "Image",
         "Latest Size",
-        "Trend (Last 3)",
+        "Trend",
         "Snapshots",
         "Last Tracked",
     ]);
@@ -60,8 +61,8 @@ pub async fn show_summary() -> Result<()> {
         let latest = snapshots.last().unwrap();
         total_size += latest.total_size;
 
-        // Calculate trend from last 3 snapshots
-        let trend = calculate_trend(snapshots);
+        // Calculate trend with sparkline (last 10 snapshots)
+        let trend = calculate_trend_with_sparkline(snapshots, 10);
 
         let last_tracked = latest.timestamp.format("%Y-%m-%d %H:%M").to_string();
 
@@ -87,38 +88,4 @@ pub async fn show_summary() -> Result<()> {
     );
 
     Ok(())
-}
-
-fn calculate_trend(snapshots: &[ImageSnapshot]) -> String {
-    if snapshots.len() < 2 {
-        return "—".to_string();
-    }
-
-    // Get last 3 snapshots (or less if not available)
-    let count = snapshots.len().min(3);
-    let recent = &snapshots[snapshots.len() - count..];
-
-    let mut deltas = Vec::new();
-    for i in 1..recent.len() {
-        let delta = recent[i].total_size as i64 - recent[i - 1].total_size as i64;
-        deltas.push(delta);
-    }
-
-    // Format deltas
-    if deltas.is_empty() {
-        return "—".to_string();
-    }
-
-    let mut trend_parts = Vec::new();
-    for delta in deltas {
-        if delta == 0 {
-            trend_parts.push("→".dimmed().to_string());
-        } else if delta > 0 {
-            trend_parts.push(format!("+{}", format_size(delta as u64)).red().to_string());
-        } else {
-            trend_parts.push(format!("-{}", format_size((-delta) as u64)).green().to_string());
-        }
-    }
-
-    trend_parts.join(" → ")
 }

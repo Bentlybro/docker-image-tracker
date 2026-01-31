@@ -1,5 +1,6 @@
 mod analyze;
 mod analyze_all;
+mod chart;
 mod ci;
 mod compose;
 mod diff;
@@ -17,6 +18,7 @@ use clap::{Parser, Subcommand};
 
 use analyze::{analyze_image, OutputFormat};
 use analyze_all::analyze_all_images;
+use chart::{show_chart, show_chart_all};
 use ci::{parse_size, run_ci, CiConfig, CiOutputFormat};
 use compose::{compose_analyze, compose_history, compose_track};
 use diff::diff_images;
@@ -94,6 +96,20 @@ enum Commands {
 
         /// Limit to last N snapshots
         #[arg(long)]
+        last: Option<usize>,
+    },
+
+    /// Show ASCII trend chart for image(s)
+    Chart {
+        /// Docker image to show chart for (e.g., myapp:latest)
+        image: Option<String>,
+
+        /// Show charts for all tracked images
+        #[arg(long)]
+        all: bool,
+
+        /// Limit to last N snapshots
+        #[arg(long, default_value = "20")]
         last: Option<usize>,
     },
 
@@ -202,6 +218,15 @@ async fn main() -> Result<()> {
         }
         Commands::History { image, last } => {
             show_history(&image, last).await?;
+        }
+        Commands::Chart { image, all, last } => {
+            if all {
+                show_chart_all(last).await?;
+            } else if let Some(img) = image {
+                show_chart(&img, last).await?;
+            } else {
+                anyhow::bail!("Must provide either an image name or --all flag");
+            }
         }
         Commands::Compose(compose_cmd) => match compose_cmd {
             ComposeCommands::Analyze { file } => {
