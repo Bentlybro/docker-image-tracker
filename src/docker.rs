@@ -141,14 +141,23 @@ impl DockerClient {
 
 /// Clean up Docker command strings for display
 fn clean_command(cmd: &str) -> String {
-    let cleaned = cmd
-        // Remove /bin/sh -c #(nop) prefix (metadata commands like ENV, LABEL, etc.)
+    let mut cleaned = cmd.to_string();
+
+    // Remove /bin/sh -c #(nop) prefix (metadata commands like ENV, LABEL, etc.)
+    cleaned = cleaned
         .replace("/bin/sh -c #(nop)  ", "")
-        .replace("/bin/sh -c #(nop) ", "")
-        // Remove /bin/sh -c prefix (RUN commands)
-        .replace("/bin/sh -c ", "RUN ")
-        .trim()
-        .to_string();
+        .replace("/bin/sh -c #(nop) ", "");
+
+    // Remove /bin/sh -c prefix (RUN commands from old builder)
+    cleaned = cleaned.replace("/bin/sh -c ", "RUN ");
+
+    // Fix double RUN from BuildKit (BuildKit already includes RUN prefix)
+    cleaned = cleaned.replace("RUN RUN ", "RUN ");
+
+    // Remove BuildKit suffix
+    cleaned = cleaned.replace(" # buildkit", "");
+
+    let cleaned = cleaned.trim().to_string();
 
     if cleaned.is_empty() {
         "<layer>".to_string()
